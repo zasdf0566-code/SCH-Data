@@ -121,7 +121,8 @@ class GSheetData:
             if t and t not in seen:
                 seen.add(t)
                 result.append(t)
-        return result
+            # Myanmar/Unicode သို့မဟုတ် English အစဉ်လိုက် ညီအောင် sort ပြုလုပ်ပေးခြင်း
+        return sorted(result)
 
     def get_rhcs(self, sheet_name, township):
         rows = self._get_rows(sheet_name)
@@ -133,7 +134,7 @@ class GSheetData:
                 if v and v not in seen:
                     seen.add(v)
                     result.append(v)
-        return result
+        return sorted(result)
 
     def get_subcenters(self, sheet_name, township, rhc):
         rows = self._get_rows(sheet_name)
@@ -145,7 +146,7 @@ class GSheetData:
                 if v and v not in seen:
                     seen.add(v)
                     result.append(v)
-        return result
+        return sorted(result)
 
     def get_villages(self, sheet_name, township, rhc, subcenter):
         rows = self._get_rows(sheet_name)
@@ -159,7 +160,7 @@ class GSheetData:
                 if v and v not in seen:
                     seen.add(v)
                     result.append(v)
-        return result
+        return sorted(result)
 
     def _find_row(self, rows, township, rhc, subcenter, village):
         for r in rows:
@@ -177,14 +178,28 @@ class GSheetData:
         if not row:
             return {}
 
-        phone = row.get("Phone Contant", "") or row.get("Phone Contact", "")
+        phone = row.get("Phone Contact", "") or row.get("Phone Contant", "")
+        
+        # Header စာလုံးပေါင်း ကွဲလွဲမှုများ (ဥပမာ: Provider Code / Provider code / Code စသည်) ကို ထည့်သွင်းစစ်ဆေးပေးထားပါသည်
+        provider_code = (
+            row.get("Provider Code", "")
+            or row.get("Provider code", "")
+            or row.get("Code", "")
+        )
+        
+        provider_type = (
+            row.get("Provider Type", "")
+            or row.get("Provider type", "")
+            or row.get("Type", "")
+        )
+
         return {
-            "Provider Name": row.get("Provider Name", "N/A"),
+            "Provider Name": row.get("Provider Name", "N/A") or "N/A",
             "Phone Contact": phone if phone else "N/A",
             "HH": row.get("HH", "N/A") or "N/A",
             "Pop": row.get("Pop", "N/A") or "N/A",
-            "Latitude": row.get("Latitude", "N/A") or "N/A",
-            "Longitude": row.get("Longitude", "N/A") or "N/A",
+            "Provider Code": provider_code if provider_code else "N/A",
+            "Provider Type": provider_type if provider_type else "N/A",
         }
 
     # ─── STOCK DATA ──────────────────────────────────────────
