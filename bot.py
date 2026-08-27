@@ -130,8 +130,8 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         text, kb = _build_level(state)
         try:
             await query.edit_message_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Error editing message on pagination: {e}")
         _reschedule(context, chat_id, state, user_id)
         return
 
@@ -154,8 +154,8 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         text, kb = _build_level(state)
         try:
             await query.edit_message_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Error editing message on back: {e}")
         _reschedule(context, chat_id, state, user_id)
         return
 
@@ -204,8 +204,8 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text, kb = _build_level(state)
     try:
         await query.edit_message_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Error editing message on navigate: {e}")
     _reschedule(context, chat_id, state, user_id)
 
 
@@ -246,7 +246,7 @@ def _build_sheet_select():
 
 def _build_township(state):
     sheet = state["sheet"]
-    townships = gsheet_data.get_townships(sheet)
+    townships = sorted(list(gsheet_data.get_townships(sheet) or []))
     text = f"📊 <b>{sheet}</b>\n\n🏙 Township ရွေးချယ်ပါ:"
     kb = _paginated_buttons(townships, TOWNSHIP_SELECT, state["page"], state["level"])
     return text, kb
@@ -255,7 +255,7 @@ def _build_township(state):
 def _build_rhc(state):
     sheet = state["sheet"]
     twp = state["township"]
-    rhcs = gsheet_data.get_rhcs(sheet, twp)
+    rhcs = sorted(list(gsheet_data.get_rhcs(sheet, twp) or []))
     text = f"📊 <b>{sheet}</b>\n🏙 Township: <b>{twp}</b>\n\n🏥 RHC ရွေးချယ်ပါ:"
     kb = _paginated_buttons(rhcs, RHC_SELECT, state["page"], state["level"])
     return text, kb
@@ -265,7 +265,7 @@ def _build_subcenter(state):
     sheet = state["sheet"]
     twp = state["township"]
     rhc = state["rhc"]
-    subs = gsheet_data.get_subcenters(sheet, twp, rhc)
+    subs = sorted(list(gsheet_data.get_subcenters(sheet, twp, rhc) or []))
     text = (
         f"📊 <b>{sheet}</b>\n"
         f"🏙 Township: <b>{twp}</b>\n"
@@ -281,7 +281,7 @@ def _build_village(state):
     twp = state["township"]
     rhc = state["rhc"]
     sub = state["subcenter"]
-    villages = gsheet_data.get_villages(sheet, twp, rhc, sub)
+    villages = sorted(list(gsheet_data.get_villages(sheet, twp, rhc, sub) or []))
     text = (
         f"📊 <b>{sheet}</b>\n"
         f"🏙 Township: <b>{twp}</b>\n"
@@ -322,7 +322,8 @@ def _build_profile_data(state):
         data = gsheet_data.get_profile_data(
             state["township"], state["rhc"], state["subcenter"], state["village"]
         )
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error fetching profile data: {e}")
         data = {}
 
     village = state["village"]
@@ -364,7 +365,8 @@ def _build_monthly_data(state):
             text += f"🦟 Mix: <b>{data.get('Mix', '-')}</b>\n"
             text += f"✅ NTG: <b>{data.get('NTG', '-')}</b>\n"
             text += f"🔄 Refer: <b>{data.get('Refer', '-')}</b>\n"
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error fetching monthly data: {e}")
         text = "⚠️ Data ရယူ၍မရပါ။"
 
     keyboard = [[InlineKeyboardButton("🔙 Back", callback_data=BACK)]]
@@ -377,7 +379,8 @@ def _build_yearly_data(state):
         data = gsheet_data.get_testing_yearly_total(
             state["township"], state["rhc"], state["subcenter"], village
         )
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error fetching yearly data: {e}")
         data = {}
 
     text = f"📊 <b>Yearly Total - Testing</b>\n🏡 Village: <b>{village}</b>\n\n"
@@ -395,16 +398,19 @@ def _build_yearly_data(state):
 # ─── PAGINATION HELPER ──────────────────────────────────────
 
 def _paginated_buttons(items, action_prefix, page, current_level):
+    items = list(items) if items else []
+    total_items = len(items)
+
     start = page * PAGE_SIZE
     end = start + PAGE_SIZE
     page_items = items[start:end]
 
-    keyboard = [[InlineKeyboardButton(item, callback_data=f"{action_prefix}:{item}")] for item in page_items]
+    keyboard = [[InlineKeyboardButton(str(item), callback_data=f"{action_prefix}:{item}")] for item in page_items]
 
     nav_row = []
-    if start > 0:
+    if page > 0:
         nav_row.append(InlineKeyboardButton("⬅️ Previous", callback_data=f"{PAGE}:{page - 1}:{current_level}"))
-    if end < len(items):
+    if end < total_items:
         nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"{PAGE}:{page + 1}:{current_level}"))
     if nav_row:
         keyboard.append(nav_row)
