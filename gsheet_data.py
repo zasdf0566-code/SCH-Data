@@ -44,7 +44,6 @@ class GSheetData:
   # ─── LOAD SHEETS ────────────────────────────────────────
 
   def _load_sheet(self, sheet_name):
-    """Load a simple sheet (Profile) with single header row."""
     ws = self.spreadsheet.worksheet(sheet_name)
     data = ws.get_all_values()
     if len(data) < 2:
@@ -60,16 +59,14 @@ class GSheetData:
     return rows
 
   def _load_monthly_sheet(self, sheet_name, sub_headers):
-    """Load Stock / Testing sheets with 2-header-row structure."""
     ws = self.spreadsheet.worksheet(sheet_name)
     data = ws.get_all_values()
     if len(data) < 3:
       return [], {}
 
-    header1 = data[0]  # Month names in row 0
-    header2 = data[1]  # Sub-column names in row 1
+    header1 = data[0]
+    header2 = data[1]
 
-    # Build column mapping: {(month, sub_header): col_index}
     month_map = {}
     current_month = ""
     months_list = [
