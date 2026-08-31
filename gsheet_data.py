@@ -60,12 +60,7 @@ class GSheetData:
     return rows
 
   def _load_monthly_sheet(self, sheet_name, sub_headers):
-    """Load Stock / Testing sheets with 2-header-row structure.
-
-    Row 0: Township, RHC, Sub-center, Village Name, January, (empty), (empty),
-    (empty), February, ... Row 1: (empty), (empty), (empty), (empty), RDT, ACT,
-    CQ, PQ, RDT, ACT, CQ, PQ, ...
-    """
+    """Load Stock / Testing sheets with 2-header-row structure."""
     ws = self.spreadsheet.worksheet(sheet_name)
     data = ws.get_all_values()
     if len(data) < 3:
@@ -200,7 +195,6 @@ class GSheetData:
 
     phone = row.get("Phone Contact", "") or row.get("Phone Contant", "")
 
-    # Code No. ရှာဖွေခြင်း (Google Sheet header အခေါ်အဝေါ် အမျိုးမျိုးအတွက်)
     code_no = (
         row.get("Code No.", "")
         or row.get("Code No", "")
@@ -209,7 +203,6 @@ class GSheetData:
         or row.get("Code", "")
     )
 
-    # Volunteer Type ရှာဖွေခြင်း
     vol_type = (
         row.get("Volunteer Type", "")
         or row.get("Volunteer type", "")
