@@ -39,8 +39,8 @@ except Exception as e:
 # State management for each user
 user_states = {}
 
-# Pagination size
-PAGE_SIZE = 8
+# Pagination size (တစ်မျက်နှာလျှင် ၅ ခု ပြသမည်)
+PAGE_SIZE = 5
 
 # Timeout for message auto-deletion (in seconds)
 MESSAGE_TIMEOUT = 120
@@ -58,6 +58,7 @@ DISPLAY_MONTHLY = "display_monthly_data"
 DISPLAY_YEARLY = "display_yearly_total"
 BACK = "back"
 PAGE = "page"
+NOOP = "noop"
 
 MONTHS = [
     "January",
@@ -146,6 +147,11 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     return
 
   state = user_states[user_id]
+
+  # စာမျက်နှာအညွှန်းခလုတ်ကို နှိပ်ပါက မည်သည့်အရာမှ မလုပ်ပါ
+  if query.data == NOOP:
+    return
+
   parts = query.data.split(":", 2)
   action = parts[0]
 
@@ -159,7 +165,8 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
           text, reply_markup=kb, parse_mode=ParseMode.HTML
       )
     except Exception as e:
-      logger.warning(f"Error editing message on pagination: {e}")
+      if "Message is not modified" not in str(e):
+        logger.warning(f"Error editing message on pagination: {e}")
     _reschedule(context, chat_id, state, user_id)
     return
 
@@ -174,7 +181,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
       state["subcenter"] = prev["subcenter"]
       state["village"] = prev["village"]
       state["month"] = prev["month"]
-      state["page"] = prev["page"]
+      state["page"] = prev.get("page", 0)
     else:
       state["level"] = SHEET_SELECT
       state["sheet"] = None
@@ -185,7 +192,8 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
           text, reply_markup=kb, parse_mode=ParseMode.HTML
       )
     except Exception as e:
-      logger.warning(f"Error editing message on back: {e}")
+      if "Message is not modified" not in str(e):
+        logger.warning(f"Error editing message on back: {e}")
     _reschedule(context, chat_id, state, user_id)
     return
 
@@ -239,7 +247,8 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         text, reply_markup=kb, parse_mode=ParseMode.HTML
     )
   except Exception as e:
-    logger.warning(f"Error editing message on navigate: {e}")
+    if "Message is not modified" not in str(e):
+      logger.warning(f"Error editing message on navigate: {e}")
   _reschedule(context, chat_id, state, user_id)
 
 
@@ -463,6 +472,15 @@ def _paginated_buttons(items, action_prefix, page, current_level):
   items = list(items) if items else []
   total_items = len(items)
 
+  # စာမျက်နှာ စုစုပေါင်း တွက်ချက်ခြင်း
+  total_pages = (
+      (total_items + PAGE_SIZE - 1) // PAGE_SIZE if total_items > 0 else 1
+  )
+
+  # စာမျက်နှာ boundary ထိန်းညှိခြင်း
+  if page >= total_pages:
+    page = max(0, total_pages - 1)
+
   start = page * PAGE_SIZE
   end = start + PAGE_SIZE
   page_items = items[start:end]
@@ -472,6 +490,7 @@ def _paginated_buttons(items, action_prefix, page, current_level):
       for item in page_items
   ]
 
+  # Navigation Buttons (Previous / Next)
   nav_row = []
   if page > 0:
     nav_row.append(
@@ -485,8 +504,15 @@ def _paginated_buttons(items, action_prefix, page, current_level):
             "Next ➡️", callback_data=f"{PAGE}:{page + 1}:{current_level}"
         )
     )
+
   if nav_row:
     keyboard.append(nav_row)
+
+  # စာမျက်နှာ အညွှန်း (📄 1/2)
+  if total_pages > 1:
+    keyboard.append(
+        [InlineKeyboardButton(f"📄 {page + 1}/{total_pages}", callback_data=NOOP)]
+    )
 
   keyboard.append([InlineKeyboardButton("🔙 Back", callback_data=BACK)])
   return InlineKeyboardMarkup(keyboard)
