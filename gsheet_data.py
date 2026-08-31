@@ -292,65 +292,39 @@ class GSheetData:
         if not row:
             return {}
 
-        # Provider Name
-        provider_name = (
-            row.get("Provider Name")
-            or row.get("providername")
-            or row.get("Provider")
-            or row.get("Name")
-            or "N/A"
-        )
-
-        # Phone Contact
-        phone = (
-            row.get("Phone Contact")
-            or row.get("phonecontact")
-            or row.get("Phone Contant")
-            or row.get("Phone")
-            or row.get("Contact")
-            or "N/A"
-        )
-
-        # HH (Household)
-        hh = row.get("HH") or row.get("hh") or row.get("House Hold") or "N/A"
-
-        # Population
-        pop = (
-            row.get("Pop")
-            or row.get("pop")
-            or row.get("Population")
-            or row.get("population")
-            or "N/A"
-        )
-
-        # Provider Type
-        prov_type = (
-            row.get("Provider Type")
-            or row.get("providertype")
-            or row.get("Volunteer Type")
-            or row.get("volunteertype")
-            or row.get("Type")
-            or "N/A"
-        )
-
-        # Provider Code
-        prov_code = (
-            row.get("Provider Code")
-            or row.get("providercode")
-            or row.get("Code No.")
-            or row.get("codeno")
-            or row.get("Code No")
-            or row.get("Code")
-            or "N/A"
-        )
-
         return {
-            "Provider Name": provider_name if provider_name else "N/A",
-            "Phone Contact": phone if phone else "N/A",
-            "HH": hh if hh else "N/A",
-            "Pop": pop if pop else "N/A",
-            "Provider Type": prov_type if prov_type else "N/A",
-            "Provider Code": prov_code if prov_code else "N/A",
+            "Provider Name": (
+                row.get("Provider Name")
+                or row.get("providername")
+                or row.get("Provider")
+                or row.get("Name")
+                or "N/A"
+            ),
+            "Phone Contact": (
+                row.get("Phone Contant")
+                or row.get("Phone Contact")
+                or row.get("phonecontant")
+                or row.get("phonecontact")
+                or row.get("Phone")
+                or "N/A"
+            ),
+            "HH": row.get("HH") or row.get("hh") or "N/A",
+            "Pop": row.get("Pop") or row.get("pop") or "N/A",
+            "Provider Type": (
+                row.get("Provider Type")
+                or row.get("providertype")
+                or row.get("Volunteer Type")
+                or row.get("volunteertype")
+                or "N/A"
+            ),
+            "Provider Code": (
+                row.get("Provider Code")
+                or row.get("providercode")
+                or row.get("Code No.")
+                or row.get("codeno")
+                or row.get("Code No")
+                or "N/A"
+            ),
         }
 
     # ─── STOCK DATA ──────────────────────────────────────────
