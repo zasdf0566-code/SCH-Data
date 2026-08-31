@@ -45,7 +45,7 @@ PAGE_SIZE = 5
 # Timeout for message auto-deletion (in seconds)
 MESSAGE_TIMEOUT = 120
 
-# Level constants (Callback data byte သက်သာစေရန် တိုတိုရေးထားပါသည်)
+# Level constants (Byte size သက်သာစေရန်)
 SHEET_SELECT = "s_sel"
 TOWNSHIP_SELECT = "t_sel"
 RHC_SELECT = "r_sel"
@@ -210,7 +210,6 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
       "page": state["page"],
   })
 
-  # Index-based item retrieval (Safe from Unicode 64-byte limitation)
   idx = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
   current_items = state.get("current_items", [])
   selected_value = (
@@ -496,7 +495,6 @@ def _paginated_buttons(items, action_prefix, page):
   end = start + PAGE_SIZE
   page_items = items[start:end]
 
-  # Index နံပါတ်ဖြင့် callback_data ပေးပို့ခြင်း (Byte Limit မကျော်စေရန်)
   keyboard = [
       [
           InlineKeyboardButton(
@@ -506,7 +504,6 @@ def _paginated_buttons(items, action_prefix, page):
       for idx, item in enumerate(page_items)
   ]
 
-  # Navigation Buttons
   nav_row = []
   if page > 0:
     nav_row.append(
