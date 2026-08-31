@@ -45,17 +45,17 @@ PAGE_SIZE = 5
 # Timeout for message auto-deletion (in seconds)
 MESSAGE_TIMEOUT = 120
 
-# Level constants
-SHEET_SELECT = "sheet_select"
-TOWNSHIP_SELECT = "township_select"
-RHC_SELECT = "rhc_select"
-SUBCENTER_SELECT = "subcenter_select"
-VILLAGE_SELECT = "village_select"
-MONTH_SELECT = "month_select"
-YEARLY_TOTAL_SELECT = "yearly_total_select"
-DISPLAY_PROFILE = "display_profile_data"
-DISPLAY_MONTHLY = "display_monthly_data"
-DISPLAY_YEARLY = "display_yearly_total"
+# Level constants (Callback data byte သက်သာစေရန် တိုတိုရေးထားပါသည်)
+SHEET_SELECT = "s_sel"
+TOWNSHIP_SELECT = "t_sel"
+RHC_SELECT = "r_sel"
+SUBCENTER_SELECT = "sc_sel"
+VILLAGE_SELECT = "v_sel"
+MONTH_SELECT = "m_sel"
+YEARLY_TOTAL_SELECT = "y_sel"
+DISPLAY_PROFILE = "disp_prof"
+DISPLAY_MONTHLY = "disp_mth"
+DISPLAY_YEARLY = "disp_yr"
 BACK = "back"
 PAGE = "page"
 NOOP = "noop"
@@ -120,9 +120,10 @@ async def check_data(
       "village": None,
       "month": None,
       "page": 0,
+      "current_items": [],
   }
 
-  text, kb = _build_sheet_select()
+  text, kb = _build_sheet_select(user_states[user_id])
   message = await update.message.reply_text(
       text, reply_markup=kb, parse_mode=ParseMode.HTML
   )
@@ -148,17 +149,16 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
   state = user_states[user_id]
 
-  # စာမျက်နှာအညွှန်းခလုတ်ကို နှိပ်ပါက မည်သည့်အရာမှ မလုပ်ပါ
   if query.data == NOOP:
     return
 
-  parts = query.data.split(":", 2)
+  parts = query.data.split(":")
   action = parts[0]
 
   # ── Pagination ──
   if action == PAGE:
-    state["page"] = int(parts[1])
-    state["level"] = parts[2]
+    new_page = int(parts[1])
+    state["page"] = new_page
     text, kb = _build_level(state)
     try:
       await query.edit_message_text(
@@ -186,6 +186,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
       state["level"] = SHEET_SELECT
       state["sheet"] = None
       state["page"] = 0
+
     text, kb = _build_level(state)
     try:
       await query.edit_message_text(
@@ -196,8 +197,6 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.warning(f"Error editing message on back: {e}")
     _reschedule(context, chat_id, state, user_id)
     return
-
-  value = parts[1] if len(parts) > 1 else None
 
   # ── Save history before moving forward ──
   state["history"].append({
@@ -211,32 +210,46 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
       "page": state["page"],
   })
 
+  # Index-based item retrieval (Safe from Unicode 64-byte limitation)
+  idx = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
+  current_items = state.get("current_items", [])
+  selected_value = (
+      current_items[idx]
+      if (idx is not None and idx < len(current_items))
+      else None
+  )
+
   # ── Navigate forward ──
   if action == SHEET_SELECT:
-    state["sheet"] = value
+    sheets = ["Profile", "Stock", "Testing"]
+    state["sheet"] = (
+        sheets[idx] if idx is not None and idx < len(sheets) else None
+    )
     state["level"] = TOWNSHIP_SELECT
     state["page"] = 0
   elif action == TOWNSHIP_SELECT:
-    state["township"] = value
+    state["township"] = selected_value
     state["level"] = RHC_SELECT
     state["page"] = 0
   elif action == RHC_SELECT:
-    state["rhc"] = value
+    state["rhc"] = selected_value
     state["level"] = SUBCENTER_SELECT
     state["page"] = 0
   elif action == SUBCENTER_SELECT:
-    state["subcenter"] = value
+    state["subcenter"] = selected_value
     state["level"] = VILLAGE_SELECT
     state["page"] = 0
   elif action == VILLAGE_SELECT:
-    state["village"] = value
+    state["village"] = selected_value
     if state["sheet"] in ("Stock", "Testing"):
       state["level"] = MONTH_SELECT
     else:
       state["level"] = DISPLAY_PROFILE
     state["page"] = 0
   elif action == MONTH_SELECT:
-    state["month"] = value
+    state["month"] = (
+        MONTHS[idx] if idx is not None and idx < len(MONTHS) else None
+    )
     state["level"] = DISPLAY_MONTHLY
   elif action == YEARLY_TOTAL_SELECT:
     state["level"] = DISPLAY_YEARLY
@@ -258,7 +271,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 def _build_level(state):
   level = state["level"]
   if level == SHEET_SELECT:
-    return _build_sheet_select()
+    return _build_sheet_select(state)
   elif level == TOWNSHIP_SELECT:
     return _build_township(state)
   elif level == RHC_SELECT:
@@ -278,18 +291,20 @@ def _build_level(state):
   return "❌ Unknown level", InlineKeyboardMarkup([])
 
 
-def _build_sheet_select():
+def _build_sheet_select(state):
   text = "📊 <b>Data Sheets</b>\n\nSheet တစ်ခုကို ရွေးချယ်ပါ:"
+  sheets = ["Profile", "Stock", "Testing"]
+  state["current_items"] = sheets
   keyboard = [
       [
           InlineKeyboardButton(
-              "📋 Profile", callback_data=f"{SHEET_SELECT}:Profile"
-          )
+              "📋 Profile", callback_data=f"{SHEET_SELECT}:0"
+          ),
+          InlineKeyboardButton("📦 Stock", callback_data=f"{SHEET_SELECT}:1"),
       ],
-      [InlineKeyboardButton("📦 Stock", callback_data=f"{SHEET_SELECT}:Stock")],
       [
           InlineKeyboardButton(
-              "🧪 Testing", callback_data=f"{SHEET_SELECT}:Testing"
+              "🧪 Testing", callback_data=f"{SHEET_SELECT}:2"
           )
       ],
   ]
@@ -299,10 +314,9 @@ def _build_sheet_select():
 def _build_township(state):
   sheet = state["sheet"]
   townships = sorted(list(gsheet_data.get_townships(sheet) or []))
+  state["current_items"] = townships
   text = f"📊 <b>{sheet}</b>\n\n🏙 Township ရွေးချယ်ပါ:"
-  kb = _paginated_buttons(
-      townships, TOWNSHIP_SELECT, state["page"], state["level"]
-  )
+  kb = _paginated_buttons(townships, TOWNSHIP_SELECT, state["page"])
   return text, kb
 
 
@@ -310,8 +324,9 @@ def _build_rhc(state):
   sheet = state["sheet"]
   twp = state["township"]
   rhcs = sorted(list(gsheet_data.get_rhcs(sheet, twp) or []))
+  state["current_items"] = rhcs
   text = f"📊 <b>{sheet}</b>\n🏙 Township: <b>{twp}</b>\n\n🏥 RHC ရွေးချယ်ပါ:"
-  kb = _paginated_buttons(rhcs, RHC_SELECT, state["page"], state["level"])
+  kb = _paginated_buttons(rhcs, RHC_SELECT, state["page"])
   return text, kb
 
 
@@ -320,15 +335,14 @@ def _build_subcenter(state):
   twp = state["township"]
   rhc = state["rhc"]
   subs = sorted(list(gsheet_data.get_subcenters(sheet, twp, rhc) or []))
+  state["current_items"] = subs
   text = (
       f"📊 <b>{sheet}</b>\n"
       f"🏙 Township: <b>{twp}</b>\n"
       f"🏥 RHC: <b>{rhc}</b>\n\n"
       "🏘 Sub-center ရွေးချယ်ပါ:"
   )
-  kb = _paginated_buttons(
-      subs, SUBCENTER_SELECT, state["page"], state["level"]
-  )
+  kb = _paginated_buttons(subs, SUBCENTER_SELECT, state["page"])
   return text, kb
 
 
@@ -340,6 +354,7 @@ def _build_village(state):
   villages = sorted(
       list(gsheet_data.get_villages(sheet, twp, rhc, sub) or [])
   )
+  state["current_items"] = villages
   text = (
       f"📊 <b>{sheet}</b>\n"
       f"🏙 Township: <b>{twp}</b>\n"
@@ -347,9 +362,7 @@ def _build_village(state):
       f"🏘 Sub-center: <b>{sub}</b>\n\n"
       "🏡 Village ရွေးချယ်ပါ:"
   )
-  kb = _paginated_buttons(
-      villages, VILLAGE_SELECT, state["page"], state["level"]
-  )
+  kb = _paginated_buttons(villages, VILLAGE_SELECT, state["page"])
   return text, kb
 
 
@@ -361,9 +374,9 @@ def _build_month(state):
   )
   keyboard = []
   row = []
-  for m in MONTHS:
+  for i, m in enumerate(MONTHS):
     row.append(
-        InlineKeyboardButton(m[:3], callback_data=f"{MONTH_SELECT}:{m}")
+        InlineKeyboardButton(m[:3], callback_data=f"{MONTH_SELECT}:{i}")
     )
     if len(row) == 3:
       keyboard.append(row)
@@ -468,16 +481,14 @@ def _build_yearly_data(state):
 # ─── PAGINATION HELPER ──────────────────────────────────────
 
 
-def _paginated_buttons(items, action_prefix, page, current_level):
+def _paginated_buttons(items, action_prefix, page):
   items = list(items) if items else []
   total_items = len(items)
 
-  # စာမျက်နှာ စုစုပေါင်း တွက်ချက်ခြင်း
   total_pages = (
       (total_items + PAGE_SIZE - 1) // PAGE_SIZE if total_items > 0 else 1
   )
 
-  # စာမျက်နှာ boundary ထိန်းညှိခြင်း
   if page >= total_pages:
     page = max(0, total_pages - 1)
 
@@ -485,30 +496,32 @@ def _paginated_buttons(items, action_prefix, page, current_level):
   end = start + PAGE_SIZE
   page_items = items[start:end]
 
+  # Index နံပါတ်ဖြင့် callback_data ပေးပို့ခြင်း (Byte Limit မကျော်စေရန်)
   keyboard = [
-      [InlineKeyboardButton(str(item), callback_data=f"{action_prefix}:{item}")]
-      for item in page_items
+      [
+          InlineKeyboardButton(
+              str(item), callback_data=f"{action_prefix}:{start + idx}"
+          )
+      ]
+      for idx, item in enumerate(page_items)
   ]
 
-  # Navigation Buttons (Previous / Next)
+  # Navigation Buttons
   nav_row = []
   if page > 0:
     nav_row.append(
         InlineKeyboardButton(
-            "⬅️ Previous", callback_data=f"{PAGE}:{page - 1}:{current_level}"
+            "⬅️ Previous", callback_data=f"{PAGE}:{page - 1}"
         )
     )
   if end < total_items:
     nav_row.append(
-        InlineKeyboardButton(
-            "Next ➡️", callback_data=f"{PAGE}:{page + 1}:{current_level}"
-        )
+        InlineKeyboardButton("Next ➡️", callback_data=f"{PAGE}:{page + 1}")
     )
 
   if nav_row:
     keyboard.append(nav_row)
 
-  # စာမျက်နှာ အညွှန်း (📄 1/2)
   if total_pages > 1:
     keyboard.append(
         [InlineKeyboardButton(f"📄 {page + 1}/{total_pages}", callback_data=NOOP)]
