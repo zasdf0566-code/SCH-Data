@@ -1,16 +1,22 @@
-import os
-import logging
-import json
 import asyncio
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-from telegram.constants import ParseMode
+import json
+import logging
+import os
 from gsheet_data import GSheetData
 from keep_alive import keep_alive
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.constants import ParseMode
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+)
 
 # Enable logging
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 
@@ -19,16 +25,16 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 OWNER_ID = int(os.environ.get("OWNER_ID", "8714578868"))
 GOOGLE_SPREADSHEET_URL = os.environ.get(
     "GOOGLE_SPREADSHEET_URL",
-    "https://docs.google.com/spreadsheets/d/1Q281_R_MrEhEIg1PpeXbYgXTakNjrkTFVDhuZbmdLJk/edit?usp=drive_link"
+    "https://docs.google.com/spreadsheets/d/1Q281_R_MrEhEIg1PpeXbYgXTakNjrkTFVDhuZbmdLJk/edit?usp=drive_link",
 )
 
 # Initialize GSheetData
 gsheet_data = None
 try:
-    gsheet_data = GSheetData()
-    logger.info("Google Sheet data loaded successfully.")
+  gsheet_data = GSheetData()
+  logger.info("Google Sheet data loaded successfully.")
 except Exception as e:
-    logger.error(f"Failed to load Google Sheet data: {e}")
+  logger.error(f"Failed to load Google Sheet data: {e}")
 
 # State management for each user
 user_states = {}
@@ -54,440 +60,511 @@ BACK = "back"
 PAGE = "page"
 
 MONTHS = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
 ]
 
 
 # ─── COMMANDS ───────────────────────────────────────────────
 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user = update.effective_user
+  user = update.effective_user
+  await update.message.reply_text(
+      f"👋 မင်္ဂလာပါ {user.first_name}!\n\n"
+      "📊 /check_data ကို နှိပ်ပြီး Spreadsheet Data ကြည့်ရှုနိုင်ပါသည်။"
+  )
+
+
+async def check_data(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+  user_id = update.effective_user.id
+  chat_id = update.effective_chat.id
+
+  # Private chat: owner only
+  if update.effective_chat.type == "private" and user_id != OWNER_ID:
     await update.message.reply_text(
-        f"👋 မင်္ဂလာပါ {user.first_name}!\n\n"
-        "📊 /check_data ကို နှိပ်ပြီး Spreadsheet Data ကြည့်ရှုနိုင်ပါသည်။"
+        "⛔ Private chat တွင် Owner သာ အသုံးပြုနိုင်ပါသည်။"
     )
+    return
 
+  if gsheet_data is None:
+    await update.message.reply_text(
+        "⚠️ Google Sheet data မရနိုင်သေးပါ။ ခဏစောင့်ပေးပါ။"
+    )
+    return
 
-async def check_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
+  # Clean previous session
+  await _cleanup_old_message(context, user_id, chat_id)
 
-    # Private chat: owner only
-    if update.effective_chat.type == "private" and user_id != OWNER_ID:
-        await update.message.reply_text("⛔ Private chat တွင် Owner သာ အသုံးပြုနိုင်ပါသည်။")
-        return
+  # Initialize user state
+  user_states[user_id] = {
+      "history": [],
+      "level": SHEET_SELECT,
+      "sheet": None,
+      "township": None,
+      "rhc": None,
+      "subcenter": None,
+      "village": None,
+      "month": None,
+      "page": 0,
+  }
 
-    if gsheet_data is None:
-        await update.message.reply_text("⚠️ Google Sheet data မရနိုင်သေးပါ။ ခဏစောင့်ပေးပါ။")
-        return
-
-    # Clean previous session
-    await _cleanup_old_message(context, user_id, chat_id)
-
-    # Initialize user state
-    user_states[user_id] = {
-        "history": [],
-        "level": SHEET_SELECT,
-        "sheet": None,
-        "township": None,
-        "rhc": None,
-        "subcenter": None,
-        "village": None,
-        "month": None,
-        "page": 0,
-    }
-
-    text, kb = _build_sheet_select()
-    message = await update.message.reply_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
-    user_states[user_id]["message_id"] = message.message_id
-    _schedule_deletion(context, chat_id, message.message_id, user_id)
+  text, kb = _build_sheet_select()
+  message = await update.message.reply_text(
+      text, reply_markup=kb, parse_mode=ParseMode.HTML
+  )
+  user_states[user_id]["message_id"] = message.message_id
+  _schedule_deletion(context, chat_id, message.message_id, user_id)
 
 
 # ─── CALLBACK HANDLER ───────────────────────────────────────
 
+
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    await query.answer()
+  query = update.callback_query
+  await query.answer()
 
-    user_id = query.from_user.id
-    chat_id = query.message.chat_id
+  user_id = query.from_user.id
+  chat_id = query.message.chat_id
 
-    if user_id not in user_states:
-        await query.edit_message_text("⏰ Session ကုန်သွားပါပြီ။ /check_data ကို ပြန်နှိပ်ပါ။")
-        return
+  if user_id not in user_states:
+    await query.edit_message_text(
+        "⏰ Session ကုန်သွားပါပြီ။ /check_data ကို ပြန်နှိပ်ပါ။"
+    )
+    return
 
-    state = user_states[user_id]
-    parts = query.data.split(":", 1)
-    action = parts[0]
-    value = parts[1] if len(parts) > 1 else None
+  state = user_states[user_id]
+  parts = query.data.split(":", 2)
+  action = parts[0]
 
-    # ── Pagination ──
-    if action == PAGE:
-        page_str, level = value.split(":", 1)
-        state["page"] = int(page_str)
-        state["level"] = level
-        text, kb = _build_level(state)
-        try:
-            await query.edit_message_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
-        except Exception as e:
-            logger.warning(f"Error editing message on pagination: {e}")
-        _reschedule(context, chat_id, state, user_id)
-        return
-
-    # ── Back ──
-    if action == BACK:
-        if state["history"]:
-            prev = state["history"].pop()
-            state["level"] = prev["level"]
-            state["sheet"] = prev["sheet"]
-            state["township"] = prev["township"]
-            state["rhc"] = prev["rhc"]
-            state["subcenter"] = prev["subcenter"]
-            state["village"] = prev["village"]
-            state["month"] = prev["month"]
-            state["page"] = prev["page"]
-        else:
-            state["level"] = SHEET_SELECT
-            state["sheet"] = None
-            state["page"] = 0
-        text, kb = _build_level(state)
-        try:
-            await query.edit_message_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
-        except Exception as e:
-            logger.warning(f"Error editing message on back: {e}")
-        _reschedule(context, chat_id, state, user_id)
-        return
-
-    # ── Save history before moving forward ──
-    state["history"].append({
-        "level": state["level"],
-        "sheet": state["sheet"],
-        "township": state["township"],
-        "rhc": state["rhc"],
-        "subcenter": state["subcenter"],
-        "village": state["village"],
-        "month": state["month"],
-        "page": state["page"],
-    })
-
-    # ── Navigate forward ──
-    if action == SHEET_SELECT:
-        state["sheet"] = value
-        state["level"] = TOWNSHIP_SELECT
-        state["page"] = 0
-    elif action == TOWNSHIP_SELECT:
-        state["township"] = value
-        state["level"] = RHC_SELECT
-        state["page"] = 0
-    elif action == RHC_SELECT:
-        state["rhc"] = value
-        state["level"] = SUBCENTER_SELECT
-        state["page"] = 0
-    elif action == SUBCENTER_SELECT:
-        state["subcenter"] = value
-        state["level"] = VILLAGE_SELECT
-        state["page"] = 0
-    elif action == VILLAGE_SELECT:
-        state["village"] = value
-        if state["sheet"] in ("Stock", "Testing"):
-            state["level"] = MONTH_SELECT
-        else:
-            state["level"] = DISPLAY_PROFILE
-        state["page"] = 0
-    elif action == MONTH_SELECT:
-        state["month"] = value
-        state["level"] = DISPLAY_MONTHLY
-    elif action == YEARLY_TOTAL_SELECT:
-        state["level"] = DISPLAY_YEARLY
-
+  # ── Pagination ──
+  if action == PAGE:
+    state["page"] = int(parts[1])
+    state["level"] = parts[2]
     text, kb = _build_level(state)
     try:
-        await query.edit_message_text(text, reply_markup=kb, parse_mode=ParseMode.HTML)
+      await query.edit_message_text(
+          text, reply_markup=kb, parse_mode=ParseMode.HTML
+      )
     except Exception as e:
-        logger.warning(f"Error editing message on navigate: {e}")
+      logger.warning(f"Error editing message on pagination: {e}")
     _reschedule(context, chat_id, state, user_id)
+    return
+
+  # ── Back ──
+  if action == BACK:
+    if state["history"]:
+      prev = state["history"].pop()
+      state["level"] = prev["level"]
+      state["sheet"] = prev["sheet"]
+      state["township"] = prev["township"]
+      state["rhc"] = prev["rhc"]
+      state["subcenter"] = prev["subcenter"]
+      state["village"] = prev["village"]
+      state["month"] = prev["month"]
+      state["page"] = prev["page"]
+    else:
+      state["level"] = SHEET_SELECT
+      state["sheet"] = None
+      state["page"] = 0
+    text, kb = _build_level(state)
+    try:
+      await query.edit_message_text(
+          text, reply_markup=kb, parse_mode=ParseMode.HTML
+      )
+    except Exception as e:
+      logger.warning(f"Error editing message on back: {e}")
+    _reschedule(context, chat_id, state, user_id)
+    return
+
+  value = parts[1] if len(parts) > 1 else None
+
+  # ── Save history before moving forward ──
+  state["history"].append({
+      "level": state["level"],
+      "sheet": state["sheet"],
+      "township": state["township"],
+      "rhc": state["rhc"],
+      "subcenter": state["subcenter"],
+      "village": state["village"],
+      "month": state["month"],
+      "page": state["page"],
+  })
+
+  # ── Navigate forward ──
+  if action == SHEET_SELECT:
+    state["sheet"] = value
+    state["level"] = TOWNSHIP_SELECT
+    state["page"] = 0
+  elif action == TOWNSHIP_SELECT:
+    state["township"] = value
+    state["level"] = RHC_SELECT
+    state["page"] = 0
+  elif action == RHC_SELECT:
+    state["rhc"] = value
+    state["level"] = SUBCENTER_SELECT
+    state["page"] = 0
+  elif action == SUBCENTER_SELECT:
+    state["subcenter"] = value
+    state["level"] = VILLAGE_SELECT
+    state["page"] = 0
+  elif action == VILLAGE_SELECT:
+    state["village"] = value
+    if state["sheet"] in ("Stock", "Testing"):
+      state["level"] = MONTH_SELECT
+    else:
+      state["level"] = DISPLAY_PROFILE
+    state["page"] = 0
+  elif action == MONTH_SELECT:
+    state["month"] = value
+    state["level"] = DISPLAY_MONTHLY
+  elif action == YEARLY_TOTAL_SELECT:
+    state["level"] = DISPLAY_YEARLY
+
+  text, kb = _build_level(state)
+  try:
+    await query.edit_message_text(
+        text, reply_markup=kb, parse_mode=ParseMode.HTML
+    )
+  except Exception as e:
+    logger.warning(f"Error editing message on navigate: {e}")
+  _reschedule(context, chat_id, state, user_id)
 
 
 # ─── BUILD MESSAGES ─────────────────────────────────────────
 
+
 def _build_level(state):
-    level = state["level"]
-    if level == SHEET_SELECT:
-        return _build_sheet_select()
-    elif level == TOWNSHIP_SELECT:
-        return _build_township(state)
-    elif level == RHC_SELECT:
-        return _build_rhc(state)
-    elif level == SUBCENTER_SELECT:
-        return _build_subcenter(state)
-    elif level == VILLAGE_SELECT:
-        return _build_village(state)
-    elif level == MONTH_SELECT:
-        return _build_month(state)
-    elif level == DISPLAY_PROFILE:
-        return _build_profile_data(state)
-    elif level == DISPLAY_MONTHLY:
-        return _build_monthly_data(state)
-    elif level == DISPLAY_YEARLY:
-        return _build_yearly_data(state)
-    return "❌ Unknown level", InlineKeyboardMarkup([])
+  level = state["level"]
+  if level == SHEET_SELECT:
+    return _build_sheet_select()
+  elif level == TOWNSHIP_SELECT:
+    return _build_township(state)
+  elif level == RHC_SELECT:
+    return _build_rhc(state)
+  elif level == SUBCENTER_SELECT:
+    return _build_subcenter(state)
+  elif level == VILLAGE_SELECT:
+    return _build_village(state)
+  elif level == MONTH_SELECT:
+    return _build_month(state)
+  elif level == DISPLAY_PROFILE:
+    return _build_profile_data(state)
+  elif level == DISPLAY_MONTHLY:
+    return _build_monthly_data(state)
+  elif level == DISPLAY_YEARLY:
+    return _build_yearly_data(state)
+  return "❌ Unknown level", InlineKeyboardMarkup([])
 
 
 def _build_sheet_select():
-    text = "📊 <b>Data Sheets</b>\n\nSheet တစ်ခုကို ရွေးချယ်ပါ:"
-    keyboard = [
-        [InlineKeyboardButton("📋 Profile", callback_data=f"{SHEET_SELECT}:Profile")],
-        [InlineKeyboardButton("📦 Stock", callback_data=f"{SHEET_SELECT}:Stock")],
-        [InlineKeyboardButton("🧪 Testing", callback_data=f"{SHEET_SELECT}:Testing")],
-    ]
-    return text, InlineKeyboardMarkup(keyboard)
+  text = "📊 <b>Data Sheets</b>\n\nSheet တစ်ခုကို ရွေးချယ်ပါ:"
+  keyboard = [
+      [
+          InlineKeyboardButton(
+              "📋 Profile", callback_data=f"{SHEET_SELECT}:Profile"
+          )
+      ],
+      [InlineKeyboardButton("📦 Stock", callback_data=f"{SHEET_SELECT}:Stock")],
+      [
+          InlineKeyboardButton(
+              "🧪 Testing", callback_data=f"{SHEET_SELECT}:Testing"
+          )
+      ],
+  ]
+  return text, InlineKeyboardMarkup(keyboard)
 
 
 def _build_township(state):
-    sheet = state["sheet"]
-    townships = sorted(list(gsheet_data.get_townships(sheet) or []))
-    text = f"📊 <b>{sheet}</b>\n\n🏙 Township ရွေးချယ်ပါ:"
-    kb = _paginated_buttons(townships, TOWNSHIP_SELECT, state["page"], state["level"])
-    return text, kb
+  sheet = state["sheet"]
+  townships = sorted(list(gsheet_data.get_townships(sheet) or []))
+  text = f"📊 <b>{sheet}</b>\n\n🏙 Township ရွေးချယ်ပါ:"
+  kb = _paginated_buttons(
+      townships, TOWNSHIP_SELECT, state["page"], state["level"]
+  )
+  return text, kb
 
 
 def _build_rhc(state):
-    sheet = state["sheet"]
-    twp = state["township"]
-    rhcs = sorted(list(gsheet_data.get_rhcs(sheet, twp) or []))
-    text = f"📊 <b>{sheet}</b>\n🏙 Township: <b>{twp}</b>\n\n🏥 RHC ရွေးချယ်ပါ:"
-    kb = _paginated_buttons(rhcs, RHC_SELECT, state["page"], state["level"])
-    return text, kb
+  sheet = state["sheet"]
+  twp = state["township"]
+  rhcs = sorted(list(gsheet_data.get_rhcs(sheet, twp) or []))
+  text = f"📊 <b>{sheet}</b>\n🏙 Township: <b>{twp}</b>\n\n🏥 RHC ရွေးချယ်ပါ:"
+  kb = _paginated_buttons(rhcs, RHC_SELECT, state["page"], state["level"])
+  return text, kb
 
 
 def _build_subcenter(state):
-    sheet = state["sheet"]
-    twp = state["township"]
-    rhc = state["rhc"]
-    subs = sorted(list(gsheet_data.get_subcenters(sheet, twp, rhc) or []))
-    text = (
-        f"📊 <b>{sheet}</b>\n"
-        f"🏙 Township: <b>{twp}</b>\n"
-        f"🏥 RHC: <b>{rhc}</b>\n\n"
-        "🏘 Sub-center ရွေးချယ်ပါ:"
-    )
-    kb = _paginated_buttons(subs, SUBCENTER_SELECT, state["page"], state["level"])
-    return text, kb
+  sheet = state["sheet"]
+  twp = state["township"]
+  rhc = state["rhc"]
+  subs = sorted(list(gsheet_data.get_subcenters(sheet, twp, rhc) or []))
+  text = (
+      f"📊 <b>{sheet}</b>\n"
+      f"🏙 Township: <b>{twp}</b>\n"
+      f"🏥 RHC: <b>{rhc}</b>\n\n"
+      "🏘 Sub-center ရွေးချယ်ပါ:"
+  )
+  kb = _paginated_buttons(
+      subs, SUBCENTER_SELECT, state["page"], state["level"]
+  )
+  return text, kb
 
 
 def _build_village(state):
-    sheet = state["sheet"]
-    twp = state["township"]
-    rhc = state["rhc"]
-    sub = state["subcenter"]
-    villages = sorted(list(gsheet_data.get_villages(sheet, twp, rhc, sub) or []))
-    text = (
-        f"📊 <b>{sheet}</b>\n"
-        f"🏙 Township: <b>{twp}</b>\n"
-        f"🏥 RHC: <b>{rhc}</b>\n"
-        f"🏘 Sub-center: <b>{sub}</b>\n\n"
-        "🏡 Village ရွေးချယ်ပါ:"
-    )
-    kb = _paginated_buttons(villages, VILLAGE_SELECT, state["page"], state["level"])
-    return text, kb
+  sheet = state["sheet"]
+  twp = state["township"]
+  rhc = state["rhc"]
+  sub = state["subcenter"]
+  villages = sorted(
+      list(gsheet_data.get_villages(sheet, twp, rhc, sub) or [])
+  )
+  text = (
+      f"📊 <b>{sheet}</b>\n"
+      f"🏙 Township: <b>{twp}</b>\n"
+      f"🏥 RHC: <b>{rhc}</b>\n"
+      f"🏘 Sub-center: <b>{sub}</b>\n\n"
+      "🏡 Village ရွေးချယ်ပါ:"
+  )
+  kb = _paginated_buttons(
+      villages, VILLAGE_SELECT, state["page"], state["level"]
+  )
+  return text, kb
 
 
 def _build_month(state):
-    sheet = state["sheet"]
-    village = state["village"]
-    text = (
-        f"📊 <b>{sheet}</b>\n"
-        f"🏡 Village: <b>{village}</b>\n\n"
-        "📅 လ ရွေးချယ်ပါ:"
+  sheet = state["sheet"]
+  village = state["village"]
+  text = (
+      f"📊 <b>{sheet}</b>\n🏡 Village: <b>{village}</b>\n\n📅 လ ရွေးချယ်ပါ:"
+  )
+  keyboard = []
+  row = []
+  for m in MONTHS:
+    row.append(
+        InlineKeyboardButton(m[:3], callback_data=f"{MONTH_SELECT}:{m}")
     )
-    keyboard = []
-    row = []
-    for i, m in enumerate(MONTHS):
-        row.append(InlineKeyboardButton(m[:3], callback_data=f"{MONTH_SELECT}:{m}"))
-        if len(row) == 3:
-            keyboard.append(row)
-            row = []
-    if row:
-        keyboard.append(row)
+    if len(row) == 3:
+      keyboard.append(row)
+      row = []
+  if row:
+    keyboard.append(row)
 
-    if sheet == "Testing":
-        keyboard.append([InlineKeyboardButton("📊 Yearly Total", callback_data=YEARLY_TOTAL_SELECT)])
-    keyboard.append([InlineKeyboardButton("🔙 Back", callback_data=BACK)])
-    return text, InlineKeyboardMarkup(keyboard)
+  if sheet == "Testing":
+    keyboard.append([
+        InlineKeyboardButton(
+            "📊 Yearly Total", callback_data=YEARLY_TOTAL_SELECT
+        )
+    ])
+  keyboard.append([InlineKeyboardButton("🔙 Back", callback_data=BACK)])
+  return text, InlineKeyboardMarkup(keyboard)
 
 
 def _build_profile_data(state):
-    try:
-        data = gsheet_data.get_profile_data(
-            state["township"], state["rhc"], state["subcenter"], state["village"]
-        )
-    except Exception as e:
-        logger.error(f"Error fetching profile data: {e}")
-        data = {}
+  try:
+    data = gsheet_data.get_profile_data(
+        state["township"], state["rhc"], state["subcenter"], state["village"]
+    )
+  except Exception as e:
+    logger.error(f"Error fetching profile data: {e}")
+    data = {}
 
-    village = state["village"]
-    text = f"📋 <b>Profile Data</b>\n🏡 Village: <b>{village}</b>\n\n"
-    text += f"👤 Provider: <b>{data.get('Provider Name', 'N/A')}</b>\n"
-    text += f"📞 Phone: <b>{data.get('Phone Contact', 'N/A')}</b>\n"
-    text += f"🏠 HH: <b>{data.get('HH', 'N/A')}</b>\n"
-    text += f"👥 Pop: <b>{data.get('Pop', 'N/A')}</b>\n"
-    text += f"📍 Lat: <b>{data.get('Latitude', 'N/A')}</b>\n"
-    text += f"📍 Long: <b>{data.get('Longitude', 'N/A')}</b>\n"
+  village = state["village"]
+  text = f"📋 <b>Profile Data</b>\n🏡 Village: <b>{village}</b>\n\n"
+  text += f"👤 Provider: <b>{data.get('Provider Name', 'N/A')}</b>\n"
+  text += f"📞 Phone: <b>{data.get('Phone Contact', 'N/A')}</b>\n"
+  text += f"🏠 HH: <b>{data.get('HH', 'N/A')}</b>\n"
+  text += f"👥 Pop: <b>{data.get('Pop', 'N/A')}</b>\n"
+  text += f"🏷 Volunteer Type: <b>{data.get('Volunteer Type', 'N/A')}</b>\n"
+  text += f"🔢 Code No.: <b>{data.get('Code No.', 'N/A')}</b>\n"
 
-    keyboard = [[InlineKeyboardButton("🔙 Back", callback_data=BACK)]]
-    return text, InlineKeyboardMarkup(keyboard)
+  keyboard = [[InlineKeyboardButton("🔙 Back", callback_data=BACK)]]
+  return text, InlineKeyboardMarkup(keyboard)
 
 
 def _build_monthly_data(state):
-    sheet = state["sheet"]
-    village = state["village"]
-    month = state["month"]
+  sheet = state["sheet"]
+  village = state["village"]
+  month = state["month"]
 
-    try:
-        if sheet == "Stock":
-            data = gsheet_data.get_stock_data(
-                state["township"], state["rhc"], state["subcenter"], village, month
-            )
-            text = f"📦 <b>Stock Data</b>\n🏡 Village: <b>{village}</b>\n📅 Month: <b>{month}</b>\n\n"
-            text += f"🔬 RDT: <b>{data.get('RDT', '-')}</b>\n"
-            text += f"💊 ACT: <b>{data.get('ACT', '-')}</b>\n"
-            text += f"💊 CQ: <b>{data.get('CQ', '-')}</b>\n"
-            text += f"💊 PQ: <b>{data.get('PQ', '-')}</b>\n"
-        else:
-            data = gsheet_data.get_testing_data(
-                state["township"], state["rhc"], state["subcenter"], village, month
-            )
-            text = f"🧪 <b>Testing Data</b>\n🏡 Village: <b>{village}</b>\n📅 Month: <b>{month}</b>\n\n"
-            text += f"🔬 Testing: <b>{data.get('Testing', '-')}</b>\n"
-            text += f"🦟 Pf: <b>{data.get('Pf', '-')}</b>\n"
-            text += f"🦟 Pv: <b>{data.get('Pv', '-')}</b>\n"
-            text += f"🦟 Mix: <b>{data.get('Mix', '-')}</b>\n"
-            text += f"✅ NTG: <b>{data.get('NTG', '-')}</b>\n"
-            text += f"🔄 Refer: <b>{data.get('Refer', '-')}</b>\n"
-    except Exception as e:
-        logger.error(f"Error fetching monthly data: {e}")
-        text = "⚠️ Data ရယူ၍မရပါ။"
+  try:
+    if sheet == "Stock":
+      data = gsheet_data.get_stock_data(
+          state["township"], state["rhc"], state["subcenter"], village, month
+      )
+      text = (
+          f"📦 <b>Stock Data</b>\n🏡 Village: <b>{village}</b>\n📅 Month:"
+          f" <b>{month}</b>\n\n"
+      )
+      text += f"🔬 RDT: <b>{data.get('RDT', '-')}</b>\n"
+      text += f"💊 ACT: <b>{data.get('ACT', '-')}</b>\n"
+      text += f"💊 CQ: <b>{data.get('CQ', '-')}</b>\n"
+      text += f"💊 PQ: <b>{data.get('PQ', '-')}</b>\n"
+    else:
+      data = gsheet_data.get_testing_data(
+          state["township"], state["rhc"], state["subcenter"], village, month
+      )
+      text = (
+          f"🧪 <b>Testing Data</b>\n🏡 Village: <b>{village}</b>\n📅 Month:"
+          f" <b>{month}</b>\n\n"
+      )
+      text += f"🔬 Testing: <b>{data.get('Testing', '-')}</b>\n"
+      text += f"🦟 Pf: <b>{data.get('Pf', '-')}</b>\n"
+      text += f"🦟 Pv: <b>{data.get('Pv', '-')}</b>\n"
+      text += f"🦟 Mix: <b>{data.get('Mix', '-')}</b>\n"
+      text += f"✅ NTG: <b>{data.get('NTG', '-')}</b>\n"
+      text += f"🔄 Refer: <b>{data.get('Refer', '-')}</b>\n"
+  except Exception as e:
+    logger.error(f"Error fetching monthly data: {e}")
+    text = "⚠️ Data ရယူ၍မရပါ။"
 
-    keyboard = [[InlineKeyboardButton("🔙 Back", callback_data=BACK)]]
-    return text, InlineKeyboardMarkup(keyboard)
+  keyboard = [[InlineKeyboardButton("🔙 Back", callback_data=BACK)]]
+  return text, InlineKeyboardMarkup(keyboard)
 
 
 def _build_yearly_data(state):
-    village = state["village"]
-    try:
-        data = gsheet_data.get_testing_yearly_total(
-            state["township"], state["rhc"], state["subcenter"], village
-        )
-    except Exception as e:
-        logger.error(f"Error fetching yearly data: {e}")
-        data = {}
+  village = state["village"]
+  try:
+    data = gsheet_data.get_testing_yearly_total(
+        state["township"], state["rhc"], state["subcenter"], village
+    )
+  except Exception as e:
+    logger.error(f"Error fetching yearly data: {e}")
+    data = {}
 
-    text = f"📊 <b>Yearly Total - Testing</b>\n🏡 Village: <b>{village}</b>\n\n"
-    text += f"🔬 Testing: <b>{data.get('Testing', '-')}</b>\n"
-    text += f"🦟 Pf: <b>{data.get('Pf', '-')}</b>\n"
-    text += f"🦟 Pv: <b>{data.get('Pv', '-')}</b>\n"
-    text += f"🦟 Mix: <b>{data.get('Mix', '-')}</b>\n"
-    text += f"✅ NTG: <b>{data.get('NTG', '-')}</b>\n"
-    text += f"🔄 Refer: <b>{data.get('Refer', '-')}</b>\n"
+  text = f"📊 <b>Yearly Total - Testing</b>\n🏡 Village: <b>{village}</b>\n\n"
+  text += f"🔬 Testing: <b>{data.get('Testing', '-')}</b>\n"
+  text += f"🦟 Pf: <b>{data.get('Pf', '-')}</b>\n"
+  text += f"🦟 Pv: <b>{data.get('Pv', '-')}</b>\n"
+  text += f"🦟 Mix: <b>{data.get('Mix', '-')}</b>\n"
+  text += f"✅ NTG: <b>{data.get('NTG', '-')}</b>\n"
+  text += f"🔄 Refer: <b>{data.get('Refer', '-')}</b>\n"
 
-    keyboard = [[InlineKeyboardButton("🔙 Back", callback_data=BACK)]]
-    return text, InlineKeyboardMarkup(keyboard)
+  keyboard = [[InlineKeyboardButton("🔙 Back", callback_data=BACK)]]
+  return text, InlineKeyboardMarkup(keyboard)
 
 
 # ─── PAGINATION HELPER ──────────────────────────────────────
 
+
 def _paginated_buttons(items, action_prefix, page, current_level):
-    items = list(items) if items else []
-    total_items = len(items)
+  items = list(items) if items else []
+  total_items = len(items)
 
-    start = page * PAGE_SIZE
-    end = start + PAGE_SIZE
-    page_items = items[start:end]
+  start = page * PAGE_SIZE
+  end = start + PAGE_SIZE
+  page_items = items[start:end]
 
-    keyboard = [[InlineKeyboardButton(str(item), callback_data=f"{action_prefix}:{item}")] for item in page_items]
+  keyboard = [
+      [InlineKeyboardButton(str(item), callback_data=f"{action_prefix}:{item}")]
+      for item in page_items
+  ]
 
-    nav_row = []
-    if page > 0:
-        nav_row.append(InlineKeyboardButton("⬅️ Previous", callback_data=f"{PAGE}:{page - 1}:{current_level}"))
-    if end < total_items:
-        nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"{PAGE}:{page + 1}:{current_level}"))
-    if nav_row:
-        keyboard.append(nav_row)
+  nav_row = []
+  if page > 0:
+    nav_row.append(
+        InlineKeyboardButton(
+            "⬅️ Previous", callback_data=f"{PAGE}:{page - 1}:{current_level}"
+        )
+    )
+  if end < total_items:
+    nav_row.append(
+        InlineKeyboardButton(
+            "Next ➡️", callback_data=f"{PAGE}:{page + 1}:{current_level}"
+        )
+    )
+  if nav_row:
+    keyboard.append(nav_row)
 
-    keyboard.append([InlineKeyboardButton("🔙 Back", callback_data=BACK)])
-    return InlineKeyboardMarkup(keyboard)
+  keyboard.append([InlineKeyboardButton("🔙 Back", callback_data=BACK)])
+  return InlineKeyboardMarkup(keyboard)
 
 
 # ─── AUTO-DELETE / SCHEDULING ───────────────────────────────
 
+
 def _schedule_deletion(context, chat_id, message_id, user_id):
-    job_name = f"del_{user_id}"
-    context.job_queue.run_once(
-        _delete_callback,
-        MESSAGE_TIMEOUT,
-        data={"chat_id": chat_id, "message_id": message_id, "user_id": user_id},
-        name=job_name,
-    )
+  job_name = f"del_{user_id}"
+  context.job_queue.run_once(
+      _delete_callback,
+      MESSAGE_TIMEOUT,
+      data={"chat_id": chat_id, "message_id": message_id, "user_id": user_id},
+      name=job_name,
+  )
 
 
 def _remove_scheduled(context, user_id):
-    job_name = f"del_{user_id}"
-    jobs = context.job_queue.get_jobs_by_name(job_name)
-    for job in jobs:
-        job.schedule_removal()
+  job_name = f"del_{user_id}"
+  jobs = context.job_queue.get_jobs_by_name(job_name)
+  for job in jobs:
+    job.schedule_removal()
 
 
 def _reschedule(context, chat_id, state, user_id):
-    if "message_id" in state:
-        _remove_scheduled(context, user_id)
-        _schedule_deletion(context, chat_id, state["message_id"], user_id)
+  if "message_id" in state:
+    _remove_scheduled(context, user_id)
+    _schedule_deletion(context, chat_id, state["message_id"], user_id)
 
 
 async def _delete_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
-    data = context.job.data
-    chat_id = data["chat_id"]
-    message_id = data["message_id"]
-    user_id = data["user_id"]
-    try:
-        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
-        if user_id in user_states:
-            del user_states[user_id]
-        logger.info(f"Auto-deleted message {message_id} for user {user_id}")
-    except Exception as e:
-        logger.error(f"Failed to delete message: {e}")
+  data = context.job.data
+  chat_id = data["chat_id"]
+  message_id = data["message_id"]
+  user_id = data["user_id"]
+  try:
+    await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+    if user_id in user_states:
+      del user_states[user_id]
+    logger.info(f"Auto-deleted message {message_id} for user {user_id}")
+  except Exception as e:
+    logger.error(f"Failed to delete message: {e}")
 
 
 async def _cleanup_old_message(context, user_id, chat_id):
-    if user_id in user_states:
-        old_state = user_states[user_id]
-        old_msg_id = old_state.get("message_id")
-        if old_msg_id:
-            try:
-                await context.bot.delete_message(chat_id=chat_id, message_id=old_msg_id)
-            except Exception:
-                pass
-        _remove_scheduled(context, user_id)
+  if user_id in user_states:
+    old_state = user_states[user_id]
+    old_msg_id = old_state.get("message_id")
+    if old_msg_id:
+      try:
+        await context.bot.delete_message(
+            chat_id=chat_id, message_id=old_msg_id
+        )
+      except Exception:
+        pass
+    _remove_scheduled(context, user_id)
 
 
 # ─── MAIN ───────────────────────────────────────────────────
 
+
 def main() -> None:
-    application = Application.builder().token(BOT_TOKEN).build()
+  application = Application.builder().token(BOT_TOKEN).build()
 
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("check_data", check_data))
-    application.add_handler(CallbackQueryHandler(button))
+  application.add_handler(CommandHandler("start", start))
+  application.add_handler(CommandHandler("check_data", check_data))
+  application.add_handler(CallbackQueryHandler(button))
 
-    # Start keep_alive for Render
-    try:
-        keep_alive()
-    except Exception:
-        pass
+  # Start keep_alive for Render
+  try:
+    keep_alive()
+  except Exception:
+    pass
 
-    print("✅ Data Viewer Bot is running...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+  print("✅ Data Viewer Bot is running...")
+  application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
-    main()
+  main()
