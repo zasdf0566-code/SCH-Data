@@ -16,7 +16,7 @@ class GSheetData:
     )
     self.spreadsheet = self.gc.open_by_url(url)
 
-    # Load all sheet data into memory
+    # Sheet အားလုံးကို memory ထဲသို့ load လုပ်ခြင်း
     self.profile_rows = self._load_sheet("Profile")
     self.stock_rows, self.stock_months = self._load_monthly_sheet(
         "Stock", sub_headers=["RDT", "ACT", "CQ", "PQ"]
@@ -44,21 +44,29 @@ class GSheetData:
   # ─── LOAD SHEETS ────────────────────────────────────────
 
   def _load_sheet(self, sheet_name):
+    """Profile Sheet (Header တစ်ကြောင်းပါ) ကို ဖတ်ယူခြင်း"""
     ws = self.spreadsheet.worksheet(sheet_name)
     data = ws.get_all_values()
     if len(data) < 2:
       return []
 
+    # Case-insensitive ဖြစ်စေရန်နှင့် space များကို ရှင်းလင်းထားသော Header keys
     headers = [h.strip() for h in data[0]]
     rows = []
     for row in data[1:]:
       record = {}
       for i, h in enumerate(headers):
-        record[h] = row[i].strip() if i < len(row) else ""
+        val = row[i].strip() if i < len(row) else ""
+        record[h] = val
+        # Lowercase key ဖြင့်လည်း သိမ်းဆည်းပေးထားပါသည်
+        record[h.lower().replace(" ", "").replace(".", "").replace("_", "")] = (
+            val
+        )
       rows.append(record)
     return rows
 
   def _load_monthly_sheet(self, sheet_name, sub_headers):
+    """Stock / Testing Sheets (Header နှစ်ကြောင်းပါ) ကို ဖတ်ယူခြင်း"""
     ws = self.spreadsheet.worksheet(sheet_name)
     data = ws.get_all_values()
     if len(data) < 3:
@@ -126,7 +134,13 @@ class GSheetData:
     seen = set()
     result = []
     for r in rows:
-      t = r.get("Township", "")
+      t = (
+          r.get("Township")
+          or r.get("township")
+          or r.get("Township Name")
+          or r.get("TownshipName")
+          or ""
+      )
       if t and t not in seen:
         seen.add(t)
         result.append(t)
@@ -137,8 +151,21 @@ class GSheetData:
     seen = set()
     result = []
     for r in rows:
-      if r.get("Township") == township:
-        v = r.get("RHC", "")
+      twp = (
+          r.get("Township")
+          or r.get("township")
+          or r.get("Township Name")
+          or r.get("TownshipName")
+          or ""
+      )
+      if twp == township:
+        v = (
+            r.get("RHC")
+            or r.get("rhc")
+            or r.get("RHC Name")
+            or r.get("RHCName")
+            or ""
+        )
         if v and v not in seen:
           seen.add(v)
           result.append(v)
@@ -149,8 +176,28 @@ class GSheetData:
     seen = set()
     result = []
     for r in rows:
-      if r.get("Township") == township and r.get("RHC") == rhc:
-        v = r.get("Sub-center", "")
+      twp = (
+          r.get("Township")
+          or r.get("township")
+          or r.get("Township Name")
+          or r.get("TownshipName")
+          or ""
+      )
+      cur_rhc = (
+          r.get("RHC")
+          or r.get("rhc")
+          or r.get("RHC Name")
+          or r.get("RHCName")
+          or ""
+      )
+      if twp == township and cur_rhc == rhc:
+        v = (
+            r.get("Sub-center")
+            or r.get("subcenter")
+            or r.get("Sub Center")
+            or r.get("Sub-Center")
+            or ""
+        )
         if v and v not in seen:
           seen.add(v)
           result.append(v)
@@ -161,12 +208,35 @@ class GSheetData:
     seen = set()
     result = []
     for r in rows:
-      if (
-          r.get("Township") == township
-          and r.get("RHC") == rhc
-          and r.get("Sub-center") == subcenter
-      ):
-        v = r.get("Village Name", "")
+      twp = (
+          r.get("Township")
+          or r.get("township")
+          or r.get("Township Name")
+          or r.get("TownshipName")
+          or ""
+      )
+      cur_rhc = (
+          r.get("RHC")
+          or r.get("rhc")
+          or r.get("RHC Name")
+          or r.get("RHCName")
+          or ""
+      )
+      cur_sub = (
+          r.get("Sub-center")
+          or r.get("subcenter")
+          or r.get("Sub Center")
+          or r.get("Sub-Center")
+          or ""
+      )
+      if twp == township and cur_rhc == rhc and cur_sub == subcenter:
+        v = (
+            r.get("Village Name")
+            or r.get("villagename")
+            or r.get("Village")
+            or r.get("village")
+            or ""
+        )
         if v and v not in seen:
           seen.add(v)
           result.append(v)
@@ -174,11 +244,39 @@ class GSheetData:
 
   def _find_row(self, rows, township, rhc, subcenter, village):
     for r in rows:
+      twp = (
+          r.get("Township")
+          or r.get("township")
+          or r.get("Township Name")
+          or r.get("TownshipName")
+          or ""
+      )
+      cur_rhc = (
+          r.get("RHC")
+          or r.get("rhc")
+          or r.get("RHC Name")
+          or r.get("RHCName")
+          or ""
+      )
+      cur_sub = (
+          r.get("Sub-center")
+          or r.get("subcenter")
+          or r.get("Sub Center")
+          or r.get("Sub-Center")
+          or ""
+      )
+      v = (
+          r.get("Village Name")
+          or r.get("villagename")
+          or r.get("Village")
+          or r.get("village")
+          or ""
+      )
       if (
-          r.get("Township") == township
-          and r.get("RHC") == rhc
-          and r.get("Sub-center") == subcenter
-          and r.get("Village Name") == village
+          twp == township
+          and cur_rhc == rhc
+          and cur_sub == subcenter
+          and v == village
       ):
         return r
     return None
@@ -190,29 +288,63 @@ class GSheetData:
     if not row:
       return {}
 
-    phone = row.get("Phone Contact", "") or row.get("Phone Contant", "")
-
-    code_no = (
-        row.get("Code No.", "")
-        or row.get("Code No", "")
-        or row.get("Provider Code", "")
-        or row.get("Provider code", "")
-        or row.get("Code", "")
+    # Provider Name
+    provider_name = (
+        row.get("Provider Name")
+        or row.get("providername")
+        or row.get("Provider")
+        or row.get("Name")
+        or "N/A"
     )
 
+    # Phone Contact
+    phone = (
+        row.get("Phone Contact")
+        or row.get("phonecontact")
+        or row.get("Phone Contant")
+        or row.get("Phone")
+        or row.get("Contact")
+        or "N/A"
+    )
+
+    # HH (Household)
+    hh = row.get("HH") or row.get("hh") or row.get("House Hold") or "N/A"
+
+    # Population
+    pop = (
+        row.get("Pop")
+        or row.get("pop")
+        or row.get("Population")
+        or row.get("population")
+        or "N/A"
+    )
+
+    # Volunteer Type
     vol_type = (
-        row.get("Volunteer Type", "")
-        or row.get("Volunteer type", "")
-        or row.get("Provider Type", "")
-        or row.get("Provider type", "")
-        or row.get("Type", "")
+        row.get("Volunteer Type")
+        or row.get("volunteertype")
+        or row.get("Provider Type")
+        or row.get("providertype")
+        or row.get("Type")
+        or "N/A"
+    )
+
+    # Code No.
+    code_no = (
+        row.get("Code No.")
+        or row.get("codeno")
+        or row.get("Code No")
+        or row.get("Provider Code")
+        or row.get("providercode")
+        or row.get("Code")
+        or "N/A"
     )
 
     return {
-        "Provider Name": row.get("Provider Name", "N/A") or "N/A",
+        "Provider Name": provider_name if provider_name else "N/A",
         "Phone Contact": phone if phone else "N/A",
-        "HH": row.get("HH", "N/A") or "N/A",
-        "Pop": row.get("Pop", "N/A") or "N/A",
+        "HH": hh if hh else "N/A",
+        "Pop": pop if pop else "N/A",
         "Volunteer Type": vol_type if vol_type else "N/A",
         "Code No.": code_no if code_no else "N/A",
     }
